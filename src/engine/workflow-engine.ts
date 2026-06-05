@@ -178,6 +178,9 @@ export class WorkflowEngine {
   }
 
   private validateStartOptions(workflowType: WorkflowType, options: StartWorkflowOptions): void {
+    if (workflowType !== "planning" && workflowType !== "pipeline") {
+      throw new Error(`Invalid workflow_type: ${workflowType}. Must be "planning" or "pipeline".`);
+    }
     if (workflowType === "planning" && !options.requirementDescription?.trim()) {
       throw new Error("requirement_description is required for planning workflow.");
     }

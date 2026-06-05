@@ -1,4 +1,6 @@
 import type { BatchContext, StoryEntry } from "../types.js";
+import { type CodeReviewResult, renderReviewMarkdown } from "../services/code-reviewer.js";
+import { type BatchAuditResult, renderAuditMarkdown } from "../services/evidence-verifier.js";
 
 export function buildStoryDiscoveryReport(batch: BatchContext): string {
   const stories = batch.selectedStories;
@@ -55,6 +57,21 @@ As a **user**, I want **...**, so that **...**.
 ## Dev Agent Record
 _(filled during development)_
 
+## Test Output
+_(filled during testing)_
+
+## Lint Output
+_(filled during code review)_
+
+## Code Review Summary
+_(filled during code review)_
+
+## Definition of Done
+- [ ] All AC verified
+- [ ] Tests pass
+- [ ] Lint passes
+- [ ] Code review verdict recorded
+
 ## Status
 ${story?.status ?? "ready-for-dev"}
 \`\`\`
@@ -72,6 +89,7 @@ Implementation checklist for MCP pipeline mode:
 - [ ] Implement tasks per acceptance criteria
 - [ ] Update Dev Agent Record section
 - [ ] Update File List and Change Log
+- [ ] Add test cases covering all ACs
 
 ## Notes
 
@@ -79,7 +97,10 @@ This MCP step records the development phase boundary. Actual code changes should
 `;
 }
 
-export function buildTestingReport(story: StoryEntry | null, testOutput?: string): string {
+export function buildTestingReport(
+  story: StoryEntry | null,
+  testOutput?: string,
+): string {
   return `# Step 04: Testing
 
 ## Story: ${story?.key ?? "n/a"}
@@ -91,7 +112,7 @@ export function buildTestingReport(story: StoryEntry | null, testOutput?: string
 ## Test Output
 
 \`\`\`
-${testOutput ?? "(no test output)"}
+${testOutput ?? "(no test output — run npm run test:unit)"}
 \`\`\`
 
 ## DoD Checklist
@@ -99,24 +120,40 @@ ${testOutput ?? "(no test output)"}
 - [ ] All acceptance criteria verified
 - [ ] Unit tests pass
 - [ ] Lint passes (see code review step)
+
+## Evidence Gate (Checkpoint 1/4)
+
+This step provides evidence for: **test_output** (must be non-empty + non-placeholder).
 `;
 }
 
-export function buildPipelineCodeReviewReport(story: StoryEntry | null, lintOutput?: string): string {
-  return `# Step 05: Code Review
+export function buildPipelineCodeReviewReport(
+  story: StoryEntry | null,
+  review: CodeReviewResult,
+): string {
+  const verdictBanner =
+    review.verdict === "approve"
+      ? "✅ **APPROVE**"
+      : review.verdict === "blocked"
+        ? "⛔ **BLOCKED**"
+        : "⚠️ **CHANGES REQUESTED**";
+
+  return `# Step 05: Code Review (AI + Lint)
 
 ## Story: ${story?.key ?? "n/a"}
 
-| Review Area | Status |
-|-------------|--------|
-| Acceptance criteria | Manual verification |
-| Lint | ${lintOutput ? "Executed" : "Placeholder"} |
+| Field | Value |
+|-------|-------|
+| Verdict | ${verdictBanner} |
+| Source | ${review.reviewSource} |
+| Files reviewed | ${review.reviewedFiles.length} |
+| Findings | ${review.findings.length} (${review.findings.filter((f) => f.severity === "critical").length} critical) |
 
-## Lint Output
+${renderReviewMarkdown(review)}
 
-\`\`\`
-${lintOutput ?? "(no lint output)"}
-\`\`\`
+## Evidence Gate (Checkpoint 2/4)
+
+This step provides evidence for: **lint_output** + **code_review_summary** (must include a verdict).
 `;
 }
 
@@ -134,6 +171,14 @@ export function buildStatusUpdateReport(batch: BatchContext, story: StoryEntry |
 \`${batch.sprintStatusPath ?? "not found"}\`
 
 _Update the sprint-status file manually or via agent after verification._
+
+## Evidence Gate (Checkpoint 3/4 — pre-done)
+
+Before marking a story as **done**, the following must be present in the story file:
+- [ ] Test Output section (non-empty)
+- [ ] Lint Output section (non-empty)
+- [ ] Code Review Summary with verdict (not BLOCKED)
+- [ ] Definition of Done — all items checked
 `;
 }
 
@@ -147,6 +192,10 @@ Checkpoint passed automatically — no user interaction required.
 ## Story
 
 ${story ? formatStoryDetail(story) : "_none_"}
+
+## Evidence Gate (Checkpoint 4/4 — re-verify)
+
+Re-running the 4-checkpoint evidence gate before completion audit.
 `;
 }
 
@@ -154,27 +203,48 @@ export function buildCompletionAuditReport(
   batch: BatchContext,
   stories: StoryEntry[],
   auditSummary: { completedSteps: string[]; totalTokens: number; totalDurationMs: number },
+  audit: BatchAuditResult | null,
 ): string {
-  return `# Step 08: Completion Audit
+  const baseLines: string[] = [
+    `# Step 08: Completion Audit`,
+    ``,
+    `| Field | Value |`,
+    `|-------|-------|`,
+    `| Batch | ${batch.batchName} |`,
+    `| Stories in scope | ${stories.length} |`,
+    `| Duration | ${Math.round(auditSummary.totalDurationMs / 1000)}s |`,
+    `| Token estimate | ~${auditSummary.totalTokens} |`,
+    ``,
+    `## Pipeline Steps Completed`,
+    ``,
+    auditSummary.completedSteps.map((s) => `- ✅ ${s}`).join("\n"),
+    ``,
+  ];
 
-| Field | Value |
-|-------|-------|
-| Batch | ${batch.batchName} |
-| Stories in scope | ${stories.length} |
-| Duration | ${Math.round(auditSummary.totalDurationMs / 1000)}s |
-| Token estimate | ~${auditSummary.totalTokens} |
+  if (audit) {
+    baseLines.push(`## 4-Checkpoint Evidence Gate Results`, ``);
+    baseLines.push(audit.allPassed
+      ? `**All 4 evidence checks passed for every story.** Stories can be marked done.`
+      : `**❌ ${audit.failedStoryKeys.length} story/stories failed the 4-checkpoint audit.** See per-story detail below.`);
+    baseLines.push(``);
+    baseLines.push(renderAuditMarkdown(audit));
+  } else if (stories.length > 0) {
+    baseLines.push(`## Stories in Scope`, ``);
+    for (const s of stories) {
+      baseLines.push(`- \`${s.key}\` — ${s.title} (${s.status})`);
+    }
+    baseLines.push(``);
+    baseLines.push(`## 4-Checkpoint Evidence Gate`, ``);
+    baseLines.push(`No batch context available — audit skipped.`);
+    baseLines.push(``);
+  } else {
+    baseLines.push(`## 4-Checkpoint Evidence Gate`, ``);
+    baseLines.push(`No stories in scope — nothing to audit.`);
+    baseLines.push(``);
+  }
 
-## Pipeline Steps Completed
-
-${auditSummary.completedSteps.map((s) => `- ✅ ${s}`).join("\n")}
-
-## Story Evidence Checklist
-
-${stories.map((s) => `- [ ] ${s.key}: ${s.title} (${s.status})`).join("\n") || "- (no stories)"}
-
----
-*Generated by @huhai0403/bmad-workflow-mcp*
-`;
+  baseLines.push(`---`, `*Generated by @huhai0403/bmad-workflow-mcp*`);
+  return baseLines.join("\n");
 }
 
 function pickNextStory(stories: StoryEntry[]): StoryEntry | null {

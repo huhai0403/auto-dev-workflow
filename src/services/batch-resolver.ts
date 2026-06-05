@@ -209,7 +209,7 @@ export async function parseSprintStatus(
 
 function parseMarkdownSprintStatus(content: string): StoryEntry[] {
   const stories: StoryEntry[] = [];
-  const devSection = content.match(/## Development Status([\s\S]*?)(?=##|$)/i);
+  const devSection = content.match(/##\s+Development\s+Status\s*\n([\s\S]*?)(?=\n##\s|\s*$)/i);
   if (!devSection) return stories;
 
   const section = devSection[1];

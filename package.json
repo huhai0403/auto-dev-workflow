@@ -16,10 +16,13 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:unit:coverage": "vitest run --coverage",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:interactive": "node scripts/interactive-test.mjs",
     "test:stability": "node scripts/stability-test.mjs",
-    "test:all": "npm run test:interactive && npm run test:stability",
+    "test:all": "npm run test:unit && npm run test:smoke && npm run test:interactive && npm run test:stability",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -41,7 +44,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@vitest/coverage-v8": "^2.1.8",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^2.1.8"
   }
 }

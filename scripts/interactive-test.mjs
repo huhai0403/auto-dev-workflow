@@ -285,6 +285,42 @@ class InteractiveTestSuite {
           `## Development Status\n\n### Epic 1: Test\n\n| Key | Story | Status | Sprint | Priority |\n|-----|-------|--------|--------|----------|\n| 1-1 | Test story | ready-for-dev | 1 | High |\n`,
           'utf-8'
         );
+        await fs.writeFile(
+          path.join(implDir, '1-1-test-story.md'),
+          `# Story 1-1: Test story
+
+## Test Output
+<!-- bmad-evidence:test step=testing at=2026-06-05T10:00:00Z workflow=wf-1 -->
+\`\`\`
+PASS  src/foo.test.ts
+Tests: 3 passed, 3 total
+\`\`\`
+
+## Lint Output
+<!-- bmad-evidence:lint step=code_review_pipeline at=2026-06-05T10:00:01Z workflow=wf-1 -->
+\`\`\`
+0 errors, 0 warnings
+\`\`\`
+
+## Code Review Summary
+<!-- bmad-evidence:review step=code_review_pipeline at=2026-06-05T10:00:02Z workflow=wf-1 -->
+\`\`\`
+bmad-fingerprint: source=llm
+bmad-fingerprint: review_hash=abc123def456
+bmad-fingerprint: model=gpt-4o-mini
+bmad-fingerprint: reviewed_at=2026-06-05T10:00:02Z
+bmad-fingerprint: lint_executed=true
+bmad-fingerprint: file_count=2
+\`\`\`
+Verdict: APPROVE
+No issues.
+
+## Definition of Done
+- [x] AC1 implemented
+- [x] Tests pass
+`,
+          'utf-8'
+        );
 
         const result = await workflowEngine.start({
           projectRoot: pipeDir,
@@ -294,9 +330,59 @@ class InteractiveTestSuite {
           mode: 'normal',
         });
         if (result.state.status !== 'completed') {
-          throw new Error(`期望状态 completed，实际 ${result.state.status}`);
+          throw new Error(`期望状态 completed，实际 ${result.state.status}: ${result.state.lastError ?? ''}`);
         }
         return `完成 ${result.state.completedSteps.length} 步`;
+      } finally {
+        await cleanupTempDir(pipeDir);
+      }
+    });
+
+    await this.runTest('Pipeline 4-checkpoint audit detects missing evidence', async () => {
+      const pipeDir = await createTempDir('bmad-pipe-audit');
+      try {
+        const batchName = 'audit-test-batch';
+        const outDir = path.join(pipeDir, '.bmad-output');
+        const planningDir = path.join(outDir, 'planning-artifacts', batchName);
+        const implDir = path.join(outDir, 'implementation-artifacts', batchName);
+        await fs.mkdir(planningDir, { recursive: true });
+        await fs.mkdir(implDir, { recursive: true });
+        await fs.writeFile(path.join(planningDir, 'prd-test.md'), '# PRD\n', 'utf-8');
+        await fs.writeFile(
+          path.join(implDir, 'sprint-status-test.md'),
+          `## Development Status\n\n### Epic 1: Test\n\n| Key | Story | Status | Sprint | Priority |\n|-----|-------|--------|--------|----------|\n| 1-1 | Incomplete story | ready-for-dev | 1 | High |\n`,
+          'utf-8'
+        );
+        await fs.writeFile(
+          path.join(implDir, '1-1-incomplete-story.md'),
+          `# Story 1-1: Incomplete
+
+## Test Output
+\`\`\`
+Skipped (no test:unit script)
+\`\`\`
+`,
+          'utf-8'
+        );
+
+        const result = await workflowEngine.start({
+          projectRoot: pipeDir,
+          outputDir: '.bmad-output',
+          workflowType: 'pipeline',
+          batch: batchName,
+          mode: 'normal',
+        });
+        if (result.state.status !== 'failed') {
+          throw new Error(`期望状态 failed（audit 拒绝），实际 ${result.state.status}`);
+        }
+        if (!result.state.lastError?.includes('audit failed')) {
+          throw new Error(`期望错误包含 'audit failed'，实际：${result.state.lastError ?? '(none)'}`);
+        }
+        const story = result.state.batchContext?.selectedStories.find((s) => s.key === '1-1');
+        if (story?.status !== 'in-progress') {
+          throw new Error(`期望 story 重排队为 in-progress，实际：${story?.status ?? '(missing)'}`);
+        }
+        return `审计拦截，story 1-1 重排队为 in-progress`;
       } finally {
         await cleanupTempDir(pipeDir);
       }

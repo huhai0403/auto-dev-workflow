@@ -1,9 +1,9 @@
 import { PLANNING_STEP_LABELS, PLANNING_OUTPUT_FILES } from "../constants.js";
+import { runAiCodeReview, renderReviewMarkdown } from "../services/code-reviewer.js";
 import { enhancePlanningContent } from "../services/content-generator.js";
 import {
   buildAcceptanceCriteria,
   buildArchitecture,
-  buildCodeReviewPlaceholder,
   buildCodeSkeleton,
   buildFinalReport,
   buildPrd,
@@ -125,7 +125,12 @@ export const planningSteps: StepDefinition[] = [
         return { success: true, outputFiles: [], outputSummary: "Skipped (includeCodeReview=false)" };
       }
       const lintOutput = ctx.dryRun ? undefined : await tryRunLint(ctx.state.projectRoot);
-      const content = buildCodeReviewPlaceholder(lintOutput);
+      const review = await runAiCodeReview({
+        projectRoot: ctx.state.projectRoot,
+        useLlm: ctx.state.useLlm,
+        lintOutput,
+      });
+      const content = renderReviewMarkdown(review);
       return writePlanningStep(ctx, "code_review", content);
     },
   },

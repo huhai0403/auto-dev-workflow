@@ -5,3 +5,4 @@ dist/
 .bmad-output/
 .bmad-workflow-state.json
 _reference/
+test-reports/

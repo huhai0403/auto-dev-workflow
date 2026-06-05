@@ -17,6 +17,9 @@
     "start": "node dist/index.js",
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
     "test:smoke": "node scripts/smoke-test.mjs",
+    "test:interactive": "node scripts/interactive-test.mjs",
+    "test:stability": "node scripts/stability-test.mjs",
+    "test:all": "npm run test:interactive && npm run test:stability",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

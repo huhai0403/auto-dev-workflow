@@ -9,13 +9,16 @@
 | 编号 | 问题 | 你的选择 |
 |------|------|----------|
 | Q1 | 八步流程 | **两套都支持**，通过 mode/参数切换 |
-| Q2 | 文档生成 | **A + C**：默认模板填充，可选 LLM 增强 |
+| Q2 | 文档生成 | **A + C**：默认模板填充，可选 LLM 增强（v0.4 起仅保留 A — 内置 LLM 调用已移除） |
 | Q3 | 输出目录 | **仅通过 `output_dir` 参数配置**，不设固定默认值 |
 | Q4 | npm 包名 | **`@huhai0403/bmad-workflow-mcp`**，计划发布 npm |
 | Q5 | batch 模式 | **首版就要支持** batch / epic / story 控制 |
 | Q6 | 步骤 6/7 | **默认启用**代码生成与代码审查 |
 | Q7 | Token 计算 | **默认 ÷4**，tiktoken 作为可选依赖 |
 | Q8 | 并发/cancel | **软取消**（同项目单 running，状态标记） |
+| Q9 | v0.3.0 链式 | **升级默认行为**：`chain_to_pipeline` 默认 `true`（一次调用跑完 planning + pipeline） |
+| Q10 | v0.3.0 state 格式 | **单文件多阶段数组** `chainPhases`，旧 schema 自动迁移 |
+| Q11 | v0.3.0 响应体 | **截短 + 落盘**完整版到 `.bmad-output/chain-summary-<id>.md` |
 
 ---
 
@@ -47,6 +50,8 @@
 **实现影响**：
 - 新增 `use_llm?: boolean` 参数（默认 `false`）
 - 新增 `LLMProvider` 抽象层，支持 OpenAI 兼容 API
+
+> **v0.4 更新**：上述「可选 / 降级」两层连同 `use_llm` 参数、`LLMProvider` 抽象层已**完全移除**。AI 增强责任改由 host 端 `/bmad-code-review` skill 承担——MCP 端只产出 lint-only 初始 fingerprint，host skill 负责重写为 `source=llm` 才能 APPROVE。
 
 ---
 
@@ -111,8 +116,47 @@
 
 ---
 
+## Q9. v0.3.0 链式触发（chain_to_pipeline）✅
+
+**背景**：v0.2.x 下，`planning` 完成后需要 host 端 LLM 主动发起第二次 `start_bmad_workflow(workflow_type=pipeline)`。在 Cursor / OpenCode 中表现为"每到关键节点停下来问用户"。
+
+**已确认**：**升级为默认行为**。`chain_to_pipeline` 默认 `true`，planning 跑完后引擎在**同一次工具调用内**自动从 `.bmad-output/planning-artifacts/` 推断 batch 并跑完 pipeline。Host 无需再发第二次调用。
+
+**实现要点**：
+- `StartWorkflowOptions.chainToPipeline?: boolean`（默认 `true`）
+- `WorkflowState.chainPhases?: WorkflowState[]` 数组
+- `StepAuditEntry.phase?: "planning" | "pipeline"` 区分阶段
+- 失败归因：planning 失败 → chain 立即终止；pipeline 失败 → resume 从 phase[1] 续跑
+- 视为 breaking change，`package.json` 升到 0.3.0
+
+**如何回到 v0.2.x 行为**：显式传 `chain_to_pipeline: false`。
+
+---
+
+## Q10. v0.3.0 state.json 格式 ✅
+
+**已确认**：**单文件多阶段数组**。`chainPhases: [phase0, phase1, ...]` 与 `currentChainPhase: number`。两个阶段都能独立 `resume_bmad_workflow` 续跑。
+
+**实现要点**：
+- 顶层 `state.workflowType` / `status` / `currentStep` / `progressPercent` 始终反映"当前激活"phase 的状态（向后兼容 `get_workflow_status` 等）
+- 旧 schema（无 `chainPhases` 字段）首次 `loadState` 时自动迁移：把整个 state 包装为 `chainPhases[0]`
+- `appendChainPhase(parent, phase)` 工具函数：追加 + 设 `currentChainPhase = phases.length - 1`
+
+---
+
+## Q11. v0.3.0 响应体长度 ✅
+
+**已确认**：**截短 + 落盘**。`formatRunResult` 行数 > 200 时截到前 30 行 + 完整版路径提示。完整汇总写到 `.bmad-output/chain-summary-<workflow_id>.md`，包含 planning/pipeline 各自的 status、步骤数、duration、batch、产物目录。
+
+**实现要点**：
+- `WorkflowRunResult.chainSummaryPath?: string` 字段
+- `structuredContent` 同步只回 `chainPhases[].{workflowType, status, completedSteps}`，不回审计明细，避免 host token 爆
+- `server.ts` `CHAIN_MAX_SUMMARY_LINES = 200`、`CHAIN_PREVIEW_LINES = 30` 常量
+
+---
+
 ## 下一步实现优先级
 
 1. **P0** — 更新包名、默认参数（Q4、Q6）、输出目录逻辑（Q3）
-2. **P1** — 双流程切换（Q1）、LLM 可选增强（Q2）、tiktoken 可选依赖（Q7）
+2. **P1** — 双流程切换（Q1）、LLM 可选增强（Q2，v0.4 起移除）、tiktoken 可选依赖（Q7）
 3. **P2** — batch / epic / story 支持（Q5，工作量最大）

@@ -245,7 +245,6 @@ class InteractiveTestSuite {
           skippedSteps: [],
           includeCodegen: true,
           includeCodeReview: false,
-          useLlm: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           startedAt: new Date().toISOString(),

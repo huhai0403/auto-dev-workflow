@@ -53,6 +53,7 @@ export interface StepAuditEntry {
   success: boolean;
   error?: string;
   retryCount: number;
+  phase?: WorkflowType;
 }
 
 export interface WorkflowState {
@@ -68,7 +69,6 @@ export interface WorkflowState {
   skippedSteps: WorkflowStepId[];
   includeCodegen: boolean;
   includeCodeReview: boolean;
-  useLlm: boolean;
   batch?: string;
   epic?: string;
   story?: string;
@@ -81,6 +81,9 @@ export interface WorkflowState {
   cancelRequested: boolean;
   auditLog: StepAuditEntry[];
   artifacts: Record<string, string>;
+  chainPhases?: WorkflowState[];
+  currentChainPhase?: number;
+  chainToPipeline?: boolean;
 }
 
 export interface StepContext {
@@ -112,16 +115,17 @@ export interface StartWorkflowOptions {
   mode?: WorkflowMode;
   includeCodegen?: boolean;
   includeCodeReview?: boolean;
-  useLlm?: boolean;
   batch?: string;
   epic?: string;
   story?: string;
+  chainToPipeline?: boolean;
 }
 
 export interface WorkflowRunResult {
   state: WorkflowState;
   message: string;
   dryRunPreview?: DryRunPreviewItem[];
+  chainSummaryPath?: string;
 }
 
 export interface DryRunPreviewItem {

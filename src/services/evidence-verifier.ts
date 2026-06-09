@@ -306,7 +306,7 @@ function checkCodeReviewSummary(content: string, workflowId?: string): EvidenceC
       name: "code_review_summary",
       required: true,
       passed: false,
-      details: `Code review fingerprint source is '${source}', not 'llm'. Stories can only be approved by an LLM review path. Re-run with use_llm=true and OPENAI_API_KEY set.`,
+      details: `Code review fingerprint source is '${source}', not 'llm'. Stories can only be approved by an LLM review path. Run the host \`/bmad-code-review\` skill to rewrite the Code Review Summary section with a \`source=llm\` fingerprint.`,
     };
   }
   return {

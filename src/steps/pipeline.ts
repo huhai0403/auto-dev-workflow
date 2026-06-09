@@ -136,7 +136,7 @@ export const pipelineSteps: StepDefinition[] = [
       const content = buildTestingReport(story, testOutput);
       const writeResult = await writePipelineStep(ctx, "testing", content);
 
-      const body = `\`\`\`\n${testOutput ?? "(no test output captured)"}\n\`\`\`\n\n_Test output captured by MCP step \`testing\` at ${new Date().toISOString()}. Source: \`${ctx.state.useLlm ? "includeCodeReview+tryRunUnitTests" : "includeCodeReview=off"}_._`;
+      const body = `\`\`\`\n${testOutput ?? "(no test output captured)"}\n\`\`\`\n\n_Test output captured by MCP step \`testing\` at ${new Date().toISOString()}. Source: \`tryRunUnitTests_._`;
       await writeEvidenceToStoryFile({
         ctx,
         stepId: "testing",
@@ -165,7 +165,6 @@ export const pipelineSteps: StepDefinition[] = [
       const lintOutput = ctx.dryRun ? "DRY-RUN: lint skipped" : await tryRunLint(ctx.state.projectRoot);
       const review: CodeReviewResult = await runAiCodeReview({
         projectRoot: ctx.state.projectRoot,
-        useLlm: ctx.state.useLlm,
         storyKey: story?.key,
         storyTitle: story?.title,
         lintOutput,

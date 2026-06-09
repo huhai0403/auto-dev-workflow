@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { llmProvider } from "./llm-provider.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,7 +44,6 @@ export interface CodeReviewResult {
 
 export interface AiCodeReviewOptions {
   projectRoot: string;
-  useLlm: boolean;
   storyKey?: string;
   storyTitle?: string;
   storyFilePath?: string;
@@ -55,7 +53,7 @@ export interface AiCodeReviewOptions {
   maxFileSizeBytes?: number;
 }
 
-const REVIEW_SYSTEM_PROMPT = `You are a senior staff engineer performing a thorough adversarial code review.
+const REVIEW_SYSTEM_PROMPT = `You are a senior staff engineer performing a thorough adversarial code review via the host /bmad-code-review skill.
 
 Your job is to find real issues — security holes, race conditions, broken error handling, performance regressions, contract violations, missing tests for non-trivial logic. Do NOT invent issues just to look thorough. If the code is clean, say so and approve.
 
@@ -84,7 +82,12 @@ VERDICT: blocked
 
 - "approve" = ship it
 - "changes_requested" = real issues that should be fixed
-- "blocked" = unfixable without more context or design decisions`;
+- "blocked" = unfixable without more context or design decisions
+
+When the host /bmad-code-review skill rewrites this section, it MUST also rewrite the
+\`bmad-fingerprint\` block with \`source=llm\` and a fresh \`review_hash\`. The MCP server's
+initial lint-only fingerprint is always \`source=lint\`, which the evidence gate rejects
+for APPROVE.`;
 
 const FILE_EXCLUDES = [
   /node_modules\//,
@@ -177,70 +180,6 @@ export async function detectChangedFiles(
   return unique;
 }
 
-export async function readChangedFiles(
-  projectRoot: string,
-  files: string[],
-  maxFileSizeBytes = 60_000,
-): Promise<Array<{ path: string; content: string }>> {
-  const out: Array<{ path: string; content: string }> = [];
-  for (const rel of files) {
-    const abs = path.resolve(projectRoot, rel);
-    if (!abs.startsWith(path.resolve(projectRoot))) continue;
-    try {
-      const stat = await fs.stat(abs);
-      if (!stat.isFile()) continue;
-      if (stat.size > maxFileSizeBytes) {
-        out.push({
-          path: rel,
-          content: `// [TRUNCATED — file size ${stat.size} > ${maxFileSizeBytes} bytes]`,
-        });
-        continue;
-      }
-      const content = await fs.readFile(abs, "utf-8");
-      out.push({ path: rel, content });
-    } catch {
-      // skip unreadable
-    }
-  }
-  return out;
-}
-
-function parseVerdict(text: string): ReviewVerdict {
-  const match = text.match(/VERDICT:\s*(approve|changes_requested|blocked)/i);
-  if (match) {
-    const v = match[1].toLowerCase();
-    if (v === "approve" || v === "blocked") return v;
-    if (v === "changes_requested") return "changes_requested";
-  }
-  return "changes_requested";
-}
-
-function parseFindings(text: string): ReviewFinding[] {
-  const findings: ReviewFinding[] = [];
-  const lines = text.split("\n");
-  for (const line of lines) {
-    const m = line.match(/^\s*-\s*\[(CRITICAL|MAJOR|MINOR|NIT)\]\s*([^:]+?):\s*(.+)$/);
-    if (m) {
-      const [, sevRaw, fileRaw, descRaw] = m;
-      const sev = sevRaw.toLowerCase() as ReviewFinding["severity"];
-      const file = fileRaw.trim();
-      const colon = file.indexOf("(");
-      const cleanFile = colon > 0 ? file.slice(0, colon).trim() : file;
-      findings.push({
-        severity: sev,
-        file: cleanFile,
-        description: descRaw.trim(),
-      });
-    }
-  }
-  return findings;
-}
-
-function extractSummary(text: string): string {
-  const m = text.match(/##\s*Summary([\s\S]*?)(?=##\s|$)/i);
-  return m ? m[1].trim() : text.split("\n").slice(0, 5).join("\n").trim();
-}
-
 function makeFingerprint(
   source: ReviewSource,
   rawOutput: string,
@@ -281,8 +220,8 @@ function renderLintOnlyReview(opts: {
   }
   const rawOutput = `lint-only:${opts.lintOutput}`;
   return {
-    verdict: hasError ? "changes_requested" : "changes_requested",
-    summary: `Lint-only review — AI review NOT performed. ${findings.length} lint finding(s). Verdict CANNOT be APPROVE because no LLM review was executed. To get an APPROVE, run with use_llm=true and OPENAI_API_KEY set.`,
+    verdict: "changes_requested",
+    summary: `Lint-only review — AI review NOT performed. ${findings.length} lint finding(s). Verdict is CHANGES_REQUESTED; run the host \`/bmad-code-review\` skill to produce an LLM review and rewrite the Code Review Summary section with a \`source=llm\` fingerprint to get an APPROVE.`,
     findings,
     reviewedFiles: opts.reviewedFiles,
     reviewSource: "lint",
@@ -301,7 +240,7 @@ function renderFallbackReview(opts: {
 }): CodeReviewResult {
   return {
     verdict: "changes_requested",
-    summary: `${opts.reason} Verdict is CHANGES_REQUESTED, not APPROVE — story cannot be marked done until a real review is performed.`,
+    summary: `${opts.reason} Verdict is CHANGES_REQUESTED, not APPROVE — story cannot be marked done until the host \`/bmad-code-review\` skill runs and rewrites the Code Review Summary section with a \`source=llm\` fingerprint.`,
     findings: [],
     reviewedFiles: opts.reviewedFiles,
     reviewSource: opts.source,
@@ -341,95 +280,22 @@ export async function runAiCodeReview(
     });
   }
 
-  const files = await readChangedFiles(
-    options.projectRoot,
-    changedFiles,
-    maxFileSizeBytes,
-  );
-
-  if (!options.useLlm) {
-    if (lintOutput) {
-      return renderLintOnlyReview({
-        lintOutput,
-        reviewedFiles: changedFiles,
-        lintExecuted,
-      });
-    }
-    return renderFallbackReview({
-      reviewedFiles: changedFiles,
-      reason:
-        "use_llm=false. Pass use_llm=true and set OPENAI_API_KEY to enable AI review.",
-      source: "llm_disabled",
+  if (lintOutput) {
+    return renderLintOnlyReview({
       lintOutput,
+      reviewedFiles: changedFiles,
       lintExecuted,
     });
   }
 
-  if (!llmProvider.isAvailable()) {
-    if (lintOutput) {
-      return renderLintOnlyReview({
-        lintOutput,
-        reviewedFiles: changedFiles,
-        lintExecuted,
-      });
-    }
-    return renderFallbackReview({
-      reviewedFiles: changedFiles,
-      reason:
-        "OPENAI_API_KEY (or LLM_API_KEY) is not set. Cannot perform AI review without credentials.",
-      source: "llm_error",
-      lintOutput,
-      lintExecuted,
-    });
-  }
-
-  const fileBlocks = files
-    .map((f) => `### \`${f.path}\`\n\`\`\`\n${f.content}\n\`\`\``)
-    .join("\n\n");
-
-  const userPrompt = [
-    options.storyKey
-      ? `Story: ${options.storyKey}${options.storyTitle ? ` — ${options.storyTitle}` : ""}`
-      : "",
-    `Project root: ${options.projectRoot}`,
-    `Files under review (${files.length}):`,
-    fileBlocks,
-    lintOutput ? `\n## Lint Output (informational)\n\`\`\`\n${lintOutput.slice(0, 4000)}\n\`\`\`` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const raw = await llmProvider.generate({
-    systemPrompt: REVIEW_SYSTEM_PROMPT,
-    userPrompt,
-    fallback: "",
-  });
-
-  if (!raw) {
-    return renderFallbackReview({
-      reviewedFiles: changedFiles,
-      reason: "LLM returned empty content after a successful API call.",
-      source: "llm_error",
-      lintOutput,
-      lintExecuted,
-    });
-  }
-
-  const verdict = parseVerdict(raw);
-  const findings = parseFindings(raw);
-  const summary = extractSummary(raw);
-
-  const fingerprint = makeFingerprint("llm", raw, changedFiles, lintExecuted);
-  return {
-    verdict,
-    summary,
-    findings,
+  return renderFallbackReview({
     reviewedFiles: changedFiles,
-    reviewSource: "llm",
-    rawOutput: raw,
+    reason:
+      "No lint output available. Run the host `/bmad-code-review` skill to produce an LLM review and rewrite the Code Review Summary section with a `source=llm` fingerprint.",
+    source: "no_lint_script",
     lintOutput,
-    fingerprint: { ...fingerprint, model: process.env.OPENAI_MODEL ?? process.env.LLM_MODEL ?? "gpt-4o-mini" },
-  };
+    lintExecuted,
+  });
 }
 
 export function renderReviewMarkdown(result: CodeReviewResult): string {

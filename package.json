@@ -1,6 +1,6 @@
 {
   "name": "@huhai0403/bmad-workflow-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "BMAD automated development workflow as an MCP server",
   "type": "module",
   "main": "./dist/index.js",

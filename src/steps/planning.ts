@@ -32,7 +32,6 @@ export const planningSteps: StepDefinition[] = [
       const slug = slugify(ctx.state.requirementDescription);
       const template = buildPrd(ctx.state.requirementDescription, slug);
       const { content } = await enhancePlanningContent(
-        ctx.state.useLlm,
         "PRD / 需求发现",
         ctx.state.requirementDescription,
         template,
@@ -50,7 +49,6 @@ export const planningSteps: StepDefinition[] = [
         ctx.state.requirementDescription;
       const template = buildUserStories(ctx.state.requirementDescription, prd);
       const { content } = await enhancePlanningContent(
-        ctx.state.useLlm,
         "用户故事生成",
         ctx.state.requirementDescription,
         template,
@@ -65,7 +63,6 @@ export const planningSteps: StepDefinition[] = [
     async execute(ctx) {
       const template = buildAcceptanceCriteria();
       const { content } = await enhancePlanningContent(
-        ctx.state.useLlm,
         "验收标准定义",
         ctx.state.requirementDescription,
         template,
@@ -80,7 +77,6 @@ export const planningSteps: StepDefinition[] = [
     async execute(ctx) {
       const template = buildArchitecture(ctx.state.requirementDescription);
       const { content } = await enhancePlanningContent(
-        ctx.state.useLlm,
         "架构设计建议",
         ctx.state.requirementDescription,
         template,
@@ -94,7 +90,6 @@ export const planningSteps: StepDefinition[] = [
     async execute(ctx) {
       const template = buildTasks();
       const { content } = await enhancePlanningContent(
-        ctx.state.useLlm,
         "任务拆解",
         ctx.state.requirementDescription,
         template,
@@ -127,7 +122,6 @@ export const planningSteps: StepDefinition[] = [
       const lintOutput = ctx.dryRun ? undefined : await tryRunLint(ctx.state.projectRoot);
       const review = await runAiCodeReview({
         projectRoot: ctx.state.projectRoot,
-        useLlm: ctx.state.useLlm,
         lintOutput,
       });
       const content = renderReviewMarkdown(review);

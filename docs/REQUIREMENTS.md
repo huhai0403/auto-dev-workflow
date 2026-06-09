@@ -1,6 +1,6 @@
 # bmad-auto-dev-workflow → MCP Server 需求规格
 
-> 记录日期：2026-05-28 | 实现版本：0.2.0 | 决策见 [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
+> 记录日期：2026-05-28 | 实现版本：0.3.0 | 决策见 [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
 
 ---
 
@@ -127,8 +127,21 @@
 - 包名：`@huhai0403/bmad-workflow-mcp`
 - 步骤 6/7 默认启用
 - batch / epic / story + `list_bmad_batches` 工具
-- LLM 可选（`use_llm` + 环境变量）
+- LLM 可选（`use_llm` + 环境变量）—— v0.4 起**已废弃**：`use_llm` 入参与内置 LLM 调用代码已移除；AI 审查改走 host 端 `/bmad-code-review` skill 覆盖 fingerprint
+- v0.4 新增 `project_root` 缺省回退到 MCP server 启动 cwd，精简入参
 - tiktoken 可选依赖
+
+---
+
+## 9.1 v0.3.0 新增（BREAKING）
+
+- **`chain_to_pipeline` 默认 `true`**：planning 跑完后引擎在同一次工具调用内自动跑 pipeline（基于 `planning-artifacts/` 推断 batch）。Host 不必再发第二次 `start_bmad_workflow`。回退 v0.2.x 行为：传 `chain_to_pipeline: false`。
+- **state.json 新增 `chainPhases: WorkflowState[]` 数组 + `currentChainPhase: number` + `chainToPipeline: boolean`**。旧 schema 自动迁移。
+- **`StepAuditEntry.phase?: "planning" | "pipeline"`** 字段，便于审计回溯。
+- **响应体截短**：链式结果 > 200 行时截到前 30 行，完整版写入 `.bmad-output/chain-summary-<workflow_id>.md`。
+- **`WorkflowRunResult.chainSummaryPath?: string`** 透出给 client。
+- **`get_workflow_status` / `resume_bmad_workflow` / `cancel_workflow`** 行为按"当前激活 phase"操作，向后兼容。
+- **错误归因**：planning 失败 → chain 中止；pipeline 失败 → 可从 `chainPhases[1]` 续跑。
 
 ---
 

@@ -5,35 +5,6 @@ import path from "node:path";
 import { workflowEngine } from "./workflow-engine.js";
 import { verifyStoryEvidence } from "../services/evidence-verifier.js";
 
-vi.mock("../services/llm-provider.js", async () => {
-  const actual = await vi.importActual<typeof import("../services/llm-provider.js")>(
-    "../services/llm-provider.js",
-  );
-  return {
-    ...actual,
-    llmProvider: {
-      isAvailable: () => true,
-      generate: async () => `## Summary
-No real issues found in this test.
-
-## Critical Issues
-(none)
-
-## Major Issues
-(none)
-
-## Minor Issues
-(none)
-
-## Nits
-(none)
-
-## Verdict
-VERDICT: approve`,
-    },
-  };
-});
-
 const buildCompleteStory = (workflowId: string): string => `# Story 1-1: Test story
 
 ## Acceptance Criteria
@@ -179,7 +150,7 @@ describe("integration: pipeline with 4-checkpoint audit", () => {
     expect(auditContent).toContain("1-2");
   });
 
-  it("passes audit when all stories have complete evidence (via MCP pipeline)", async () => {
+  it("requeues story when MCP code review cannot produce an LLM fingerprint (host skill required)", async () => {
     const batchName = "v1-int-pass";
 
     const { execFile } = await import("node:child_process");
@@ -216,33 +187,10 @@ describe("integration: pipeline with 4-checkpoint audit", () => {
       workflowType: "pipeline",
       batch: batchName,
       mode: "normal",
-      useLlm: true,
     });
 
-    if (result.state.status !== "completed") {
-      const storyFile = path.join(
-        result.state.batchContext!.implementationArtifactsPath,
-        "1-1-test-story.md",
-      );
-      const auditFile = path.join(
-        result.state.batchContext!.implementationArtifactsPath,
-        "mcp-workflow-run",
-        "08-completion-audit.md",
-      );
-      const fs = await import("node:fs/promises");
-      let content = "(story file not found)";
-      let audit = "(audit file not found)";
-      try {
-        content = await fs.readFile(storyFile, "utf-8");
-      } catch {}
-      try {
-        audit = await fs.readFile(auditFile, "utf-8");
-      } catch {}
-      throw new Error(
-        `Expected completed, got ${result.state.status}: ${result.state.lastError ?? ""}\n\n=== Story file content (${content.length} chars) ===\n${content}\n\n=== Audit file content (${audit.length} chars) ===\n${audit}`,
-      );
-    }
-    expect(result.state.lastError).toBeUndefined();
+    expect(result.state.status).toBe("failed");
+    expect(result.state.lastError ?? "").toMatch(/Completion audit failed/i);
 
     const auditPath = path.join(
       result.state.batchContext!.implementationArtifactsPath,
@@ -250,7 +198,10 @@ describe("integration: pipeline with 4-checkpoint audit", () => {
       "08-completion-audit.md",
     );
     const auditContent = await readFile(auditPath, "utf-8");
-    expect(auditContent).toContain("All 4 evidence checks passed for every story");
+    expect(auditContent).toContain("4-Checkpoint Evidence Gate Results");
+    expect(auditContent).toContain("Re-queued Stories");
+    expect(auditContent).toContain("1-1");
+    expect(auditContent).toMatch(/source is 'lint', not 'llm'/);
   });
 });
 

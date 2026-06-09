@@ -23,6 +23,7 @@ function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
     skippedSteps: [],
     includeCodegen: true,
     includeCodeReview: true,
+    useLlm: false,
     createdAt: "2026-06-09T10:00:00.000Z",
     updatedAt: "2026-06-09T10:00:00.000Z",
     cancelRequested: false,

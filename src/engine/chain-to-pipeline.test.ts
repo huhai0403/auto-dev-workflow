@@ -100,7 +100,7 @@ describe("chain_to_pipeline", () => {
     expect(result.chainSummaryPath).toBeUndefined();
   });
 
-  it("chain_to_pipeline=true without batch dir: planning succeeds, chain aborted gracefully", async () => {
+  it("chain_to_pipeline=true with no pre-existing batch: planning writes its own batch dir, chain runs pipeline with empty story list", async () => {
     const result = await workflowEngine.start({
       projectRoot: tmp,
       outputDir: ".bmad-output",
@@ -109,21 +109,22 @@ describe("chain_to_pipeline", () => {
       mode: "normal",
       chainToPipeline: true,
     });
-    expect(result.state.workflowType).toBe("planning");
+    expect(result.state.workflowType).toBe("pipeline");
     expect(result.state.status).toBe("completed");
     expect(result.message).toMatch(/\[chain\]/);
-    expect(result.message).toMatch(/No batch directory found/);
-    expect(result.chainSummaryPath).toBeUndefined();
+    expect(result.chainSummaryPath).toBeDefined();
+    expect(result.state.chainPhases?.length).toBe(2);
   });
 
   it("chain_to_pipeline=true with batch: chain runs both phases (planning completed, pipeline reaches completion_audit)", async () => {
-    const batchName = "chain-1";
+    const requirementDescription = "Full chain test";
+    const batchName = "full-chain-test";
     await setupBatchDir(tmp, batchName, [{ key: "1-1", completed: true }]);
 
     const result = await workflowEngine.start({
       projectRoot: tmp,
       outputDir: ".bmad-output",
-      requirementDescription: "Full chain test",
+      requirementDescription,
       workflowType: "planning",
       mode: "normal",
       chainToPipeline: true,
@@ -163,13 +164,14 @@ describe("chain_to_pipeline", () => {
   });
 
   it("chain: state.json contains both phases in chainPhases", async () => {
-    const batchName = "chain-2";
+    const requirementDescription = "State inspection test";
+    const batchName = "state-inspection-test";
     await setupBatchDir(tmp, batchName, [{ key: "1-1", completed: true }]);
 
     const result = await workflowEngine.start({
       projectRoot: tmp,
       outputDir: ".bmad-output",
-      requirementDescription: "State inspection test",
+      requirementDescription,
       workflowType: "planning",
       mode: "normal",
       chainToPipeline: true,
@@ -185,13 +187,14 @@ describe("chain_to_pipeline", () => {
   });
 
   it("chain: pipeline phase 4-checkpoint failure is recorded in phase[1], not blocking planning phase completion", async () => {
-    const batchName = "chain-fail";
+    const requirementDescription = "Pipeline-fail test";
+    const batchName = "pipeline-fail-test";
     await setupBatchDir(tmp, batchName, [{ key: "1-1", completed: true }]);
 
     const result = await workflowEngine.start({
       projectRoot: tmp,
       outputDir: ".bmad-output",
-      requirementDescription: "Pipeline-fail test",
+      requirementDescription,
       workflowType: "planning",
       mode: "normal",
       chainToPipeline: true,

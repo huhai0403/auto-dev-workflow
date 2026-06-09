@@ -70,22 +70,29 @@ const SERVER_START_CWD = process.cwd();
 const RECOMMENDED_PRESETS = `Recommended presets (pick one, present to the user as a choice):
 
 1) Planning — greenfield new project
-   workflow_type=planning, output_dir=.bmad-output, requirement_description=<text>,
+   workflow_type=planning, output_dir=.bmad-output,
+   requirement_file=<rel-path under project_root, e.g. docs/prd.md> (preferred) | requirement_description=<text>,
+   use_llm=true (default; uses OPENAI_API_KEY / LLM_API_KEY to generate high-quality artifacts, falls back to template when unavailable),
    chain_to_pipeline=true (default)
 
 2) Planning dry-run — preview artifacts, no files written
    workflow_type=planning, mode=dry-run, output_dir=.bmad-output,
-   requirement_description=<text>, include_codegen=false
+   requirement_file=<rel-path> | requirement_description=<text>, include_codegen=false
 
 3) Pipeline — continue an existing batch
-   workflow_type=pipeline, output_dir=.bmad-output, batch=<name>,
+   workflow_type=planning, output_dir=.bmad-output, batch=<name>,
    epic=<n> (optional), story=<n>-<m> (optional, e.g. "1-3")
 
 4) List batches
    list_bmad_batches(project_root, output_dir)
 
 project_root is OPTIONAL. When omitted, it defaults to the MCP server's startup working directory
-(currently: ${SERVER_START_CWD}). Override only if the target project lives elsewhere.`;
+(currently: ${SERVER_START_CWD}). Override only if the target project lives elsewhere.
+
+use_llm=true (default) requires OPENAI_API_KEY or LLM_API_KEY in the MCP server's environment.
+The server also honors OPENAI_BASE_URL (default https://api.openai.com/v1) and OPENAI_MODEL / LLM_MODEL
+(default gpt-4o-mini). Without a key, the workflow silently falls back to template-based artifacts
+and the workflow still completes.`;
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -122,7 +129,15 @@ behavior (two separate calls).`,
         requirement_description: z
           .string()
           .optional()
-          .describe("Required for planning workflow; optional for pipeline if batch exists"),
+          .describe(
+            "Inline requirement text. Required for planning unless requirement_file is provided; optional for pipeline if batch exists.",
+          ),
+        requirement_file: z
+          .string()
+          .optional()
+          .describe(
+            "(planning only) Relative path to a markdown PRD file under project_root, e.g. 'docs/prd.md'. The MCP server reads the file and uses its content as the requirement. Overrides requirement_description when both are provided.",
+          ),
         workflow_type: z
           .enum(["planning", "pipeline"])
           .default("planning")
@@ -130,6 +145,12 @@ behavior (two separate calls).`,
         mode: z.enum(["normal", "dry-run"]).default("normal"),
         include_codegen: z.boolean().default(true),
         include_code_review: z.boolean().default(true),
+        use_llm: z
+          .boolean()
+          .default(true)
+          .describe(
+            "(planning only) When true and OPENAI_API_KEY (or LLM_API_KEY) is set, planning steps call an OpenAI-compatible LLM to generate high-quality BMAD artifacts (PRD, user stories, architecture, tasks). Falls back to template-based artifacts when no key is set or the LLM call fails. Set false to skip LLM entirely and always use templates.",
+          ),
         batch: z.string().optional().describe("Batch name for pipeline workflow"),
         epic: z.string().optional().describe("Filter by epic number (e.g. '1')"),
         story: z.string().optional().describe("Filter by story key (e.g. '1-3')"),
@@ -148,10 +169,12 @@ behavior (two separate calls).`,
           projectRoot,
           outputDir: args.output_dir,
           requirementDescription: args.requirement_description,
+          requirementFile: args.requirement_file,
           workflowType: args.workflow_type,
           mode: args.mode,
           includeCodegen: args.include_codegen,
           includeCodeReview: args.include_code_review,
+          useLlm: args.use_llm,
           batch: args.batch,
           epic: args.epic,
           story: args.story,

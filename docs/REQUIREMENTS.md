@@ -1,6 +1,6 @@
 # bmad-auto-dev-workflow → MCP Server 需求规格
 
-> 记录日期：2026-05-28 | 实现版本：0.3.0 | 决策见 [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
+> 记录日期：2026-05-28 | 实现版本：0.5.0 | 决策见 [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
 
 ---
 
@@ -127,9 +127,17 @@
 - 包名：`@huhai0403/bmad-workflow-mcp`
 - 步骤 6/7 默认启用
 - batch / epic / story + `list_bmad_batches` 工具
-- LLM 可选（`use_llm` + 环境变量）—— v0.4 起**已废弃**：`use_llm` 入参与内置 LLM 调用代码已移除；AI 审查改走 host 端 `/bmad-code-review` skill 覆盖 fingerprint
+- v0.4 起内置 LLM 调用代码**已移除**（`use_llm` 入参 + `LlmProvider` 类 + `enhancePlanningContent` LLM 增强路径）；AI 审查改走 host 端 `/bmad-code-review` skill 覆盖 fingerprint
 - v0.4 新增 `project_root` 缺省回退到 MCP server 启动 cwd，精简入参
 - tiktoken 可选依赖
+
+## 9.2 v0.5.0 新增（PARTIAL REVERT）
+
+- **`use_llm` 重新引入**（默认 `true`）：v0.4 删除时 planning 阶段**唯一**能产出高质量内容的能力一并砍掉。事后反馈 PRD ≥ 50 行时（如 8 Epic 120 Story 电商后台）`enhancePlanningContent` 退化为 no-op，产物变成 3 个通用 Story、4 个通用架构选项的模板填充。v0.5.0 恢复 `LlmProvider`（OpenAI 兼容 API：默认 `gpt-4o-mini` / `https://api.openai.com/v1`，可用 `OPENAI_MODEL` / `OPENAI_BASE_URL` 覆盖）与 `enhancePlanningContent` 的真 LLM 路径。无 API key / 调用失败时 fallback 到模板，行为不破坏。
+- **新增 `requirement_file`**（相对 `project_root` 的路径，如 `docs/prd.md`）：MCP 端 `fs.readFile` 后注入为 `requirementDescription`。**推荐用于 ≥ 50 行的 PRD**——避免 650 行塞进 MCP 参数导致 token 暴涨。与 `requirement_description` 二选一；都传时 `requirement_file` 优先。
+- **planning 产物子目录化**：7 步产物（`01-prd.md` ~ `07-code-review.md`）写到 `output_dir/planning-artifacts/{slug}/` 下，slug 来自 `requirement_description`（`slugify` 后）。`final-report.md` 与 `audit-log.json` 仍在 `output_dir/` 顶层。**修复了 v0.4 时代 `chain_to_pipeline=true` 时无法推断 batch 的隐藏 bug**——v0.4 把产物写错位置，`inferBatchFromPlanningArtifacts` 扫不到 → chain 静默不启动。v0.5.0 起产物路径与原 Skill `_bmad-output/planning-artifacts/{batch}/` 对齐，chain 推断正常。`chain-summary-{workflow_id}.md` 移到 batch 子目录内。
+- **AI 代码审查路径不变**：仍走 host 端 `/bmad-code-review` skill 覆盖 fingerprint，不在 MCP 端调 LLM（防绕过 + 简化权限模型）。
+- 视为 minor release（0.4.0 → 0.5.0），`use_llm` 默认 `true` 是行为变更但有 fallback 兜底，不破坏现有用户。
 
 ---
 

@@ -1,6 +1,6 @@
 # 待确认问题（Open Questions）
 
-> 状态：**已确认**（2026-05-28）
+> 状态：**已确认**（2026-05-28；v0.5.0 部分回滚 Q2）
 
 ---
 
@@ -9,7 +9,7 @@
 | 编号 | 问题 | 你的选择 |
 |------|------|----------|
 | Q1 | 八步流程 | **两套都支持**，通过 mode/参数切换 |
-| Q2 | 文档生成 | **A + C**：默认模板填充，可选 LLM 增强（v0.4 起仅保留 A — 内置 LLM 调用已移除） |
+| Q2 | 文档生成 | **A + C**：默认模板填充，可选 LLM 增强（v0.4 起仅保留 A — 内置 LLM 调用已移除；**v0.5.0 部分回滚**：planning 阶段重引入 `use_llm=true` 默认 + LLM 调用代码 `LlmProvider` / `enhancePlanningContent`；code review 仍走 host 端 skill） |
 | Q3 | 输出目录 | **仅通过 `output_dir` 参数配置**，不设固定默认值 |
 | Q4 | npm 包名 | **`@huhai0403/bmad-workflow-mcp`**，计划发布 npm |
 | Q5 | batch 模式 | **首版就要支持** batch / epic / story 控制 |
@@ -19,6 +19,7 @@
 | Q9 | v0.3.0 链式 | **升级默认行为**：`chain_to_pipeline` 默认 `true`（一次调用跑完 planning + pipeline） |
 | Q10 | v0.3.0 state 格式 | **单文件多阶段数组** `chainPhases`，旧 schema 自动迁移 |
 | Q11 | v0.3.0 响应体 | **截短 + 落盘**完整版到 `.bmad-output/chain-summary-<id>.md` |
+| Q12 | v0.5.0 PRD 读取 | **新增 `requirement_file` 参数**：相对 `project_root` 的路径，MCP 端 `fs.readFile` 后注入为 requirement；与 `requirement_description` 二选一。**推荐 ≥ 50 行 PRD 使用** |
 
 ---
 
@@ -48,10 +49,12 @@
 | 降级 | 无 API Key 或调用失败时，自动回退到模板填充 |
 
 **实现影响**：
-- 新增 `use_llm?: boolean` 参数（默认 `false`）
-- 新增 `LLMProvider` 抽象层，支持 OpenAI 兼容 API
+- 新增 `use_llm?: boolean` 参数（默认 `true`）
+- 新增 `LlmProvider` 类，支持 OpenAI 兼容 API
 
-> **v0.4 更新**：上述「可选 / 降级」两层连同 `use_llm` 参数、`LLMProvider` 抽象层已**完全移除**。AI 增强责任改由 host 端 `/bmad-code-review` skill 承担——MCP 端只产出 lint-only 初始 fingerprint，host skill 负责重写为 `source=llm` 才能 APPROVE。
+> **v0.4 更新**：上述「可选 / 降级」两层连同 `use_llm` 参数、`LlmProvider` 类已**完全移除**。AI 增强责任改由 host 端 `/bmad-code-review` skill 承担——MCP 端只产出 lint-only 初始 fingerprint，host skill 负责重写为 `source=llm` 才能 APPROVE。
+>
+> **v0.5.0 部分回滚**：user 反馈 PRD ≥ 50 行时（如 8 Epic 120 Story 电商后台）`enhancePlanningContent` 退化为 no-op，产物变成 3 个通用 Story / 4 个通用架构选项的模板填充。v0.5.0 重新引入 `use_llm=true`（默认）+ `LlmProvider`（OpenAI 兼容 API：默认 `gpt-4o-mini` / `https://api.openai.com/v1`，可用 `OPENAI_MODEL` / `OPENAI_BASE_URL` 覆盖）+ `enhancePlanningContent` 真 LLM 路径。**只针对 planning 阶段**——AI 代码审查仍走 host 端 skill，不动。Fallback 行为保留：无 key / 调用失败时自动回退到模板。
 
 ---
 
@@ -158,5 +161,6 @@
 ## 下一步实现优先级
 
 1. **P0** — 更新包名、默认参数（Q4、Q6）、输出目录逻辑（Q3）
-2. **P1** — 双流程切换（Q1）、LLM 可选增强（Q2，v0.4 起移除）、tiktoken 可选依赖（Q7）
+2. **P1** — 双流程切换（Q1）、LLM 可选增强（Q2，v0.4 起移除、v0.5.0 planning 阶段回滚）、tiktoken 可选依赖（Q7）
 3. **P2** — batch / epic / story 支持（Q5，工作量最大）
+4. **v0.5.0 已交付** — Q2 部分回滚（planning LLM 增强回滚）、新增 Q12（`requirement_file`）、planning 产物子目录化修复 chain 推断 bug

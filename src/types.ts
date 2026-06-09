@@ -69,6 +69,8 @@ export interface WorkflowState {
   skippedSteps: WorkflowStepId[];
   includeCodegen: boolean;
   includeCodeReview: boolean;
+  useLlm: boolean;
+  requirementFile?: string;
   batch?: string;
   epic?: string;
   story?: string;
@@ -111,10 +113,12 @@ export interface StartWorkflowOptions {
   projectRoot: string;
   outputDir: string;
   requirementDescription?: string;
+  requirementFile?: string;
   workflowType?: WorkflowType;
   mode?: WorkflowMode;
   includeCodegen?: boolean;
   includeCodeReview?: boolean;
+  useLlm?: boolean;
   batch?: string;
   epic?: string;
   story?: string;

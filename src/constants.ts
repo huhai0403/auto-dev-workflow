@@ -1,5 +1,5 @@
 export const SERVER_NAME = "bmad-workflow-mcp";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.5.0";
 
 export const STATE_FILENAME = ".bmad-workflow-state.json";
 export const AUDIT_LOG_FILENAME = "audit-log.json";

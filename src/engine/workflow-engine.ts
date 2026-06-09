@@ -85,9 +85,24 @@ export class WorkflowEngine {
       });
     }
 
-    const requirementDescription =
+    const requirementFile = options.requirementFile?.trim() || undefined;
+    let requirementDescription =
       options.requirementDescription?.trim() ||
       (batchContext ? `Batch: ${batchContext.batchName}` : "");
+
+    if (requirementFile) {
+      const absPath = path.resolve(projectRoot, requirementFile);
+      try {
+        const fileContent = await fs.readFile(absPath, "utf-8");
+        if (fileContent.trim()) {
+          requirementDescription = fileContent;
+        }
+      } catch (err) {
+        throw new Error(
+          `Failed to read requirement_file "${requirementFile}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     const phaseState: WorkflowState = {
       workflowId: createWorkflowId(),
@@ -95,6 +110,7 @@ export class WorkflowEngine {
       projectRoot,
       outputDir,
       requirementDescription,
+      requirementFile,
       mode,
       status: "running",
       currentStep: null,
@@ -102,6 +118,7 @@ export class WorkflowEngine {
       skippedSteps: [],
       includeCodegen: options.includeCodegen ?? true,
       includeCodeReview: options.includeCodeReview ?? true,
+      useLlm: options.useLlm ?? true,
       batch: options.batch ?? batchContext?.batchName,
       epic: options.epic,
       story: options.story,
@@ -236,8 +253,14 @@ export class WorkflowEngine {
     if (workflowType !== "planning" && workflowType !== "pipeline") {
       throw new Error(`Invalid workflow_type: ${workflowType}. Must be "planning" or "pipeline".`);
     }
-    if (workflowType === "planning" && !options.requirementDescription?.trim()) {
-      throw new Error("requirement_description is required for planning workflow.");
+    if (
+      workflowType === "planning" &&
+      !options.requirementDescription?.trim() &&
+      !options.requirementFile?.trim()
+    ) {
+      throw new Error(
+        "requirement_description or requirement_file is required for planning workflow.",
+      );
     }
   }
 

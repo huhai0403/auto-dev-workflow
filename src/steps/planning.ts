@@ -1,4 +1,9 @@
-import { PLANNING_STEP_LABELS, PLANNING_OUTPUT_FILES } from "../constants.js";
+import path from "node:path";
+import {
+  PLANNING_ARTIFACTS_DIR,
+  PLANNING_STEP_LABELS,
+  PLANNING_OUTPUT_FILES,
+} from "../constants.js";
 import { runAiCodeReview, renderReviewMarkdown } from "../services/code-reviewer.js";
 import { enhancePlanningContent } from "../services/content-generator.js";
 import {
@@ -10,18 +15,24 @@ import {
   buildTasks,
   buildUserStories,
 } from "../templates/bmad-templates.js";
-import type { StepContext, StepDefinition, StepResult } from "../types.js";
+import type { StepContext, StepDefinition, StepResult, WorkflowStepId } from "../types.js";
 import { slugify } from "../utils.js";
 import { readArtifactIfExists } from "../engine/state-store.js";
 import { tryRunLint, writeStepFile } from "./shared.js";
 
+function getPlanningBatchDir(ctx: StepContext): string {
+  const slug = slugify(ctx.state.requirementDescription);
+  return path.join(ctx.state.outputDir, PLANNING_ARTIFACTS_DIR, slug);
+}
+
 async function writePlanningStep(
   ctx: StepContext,
-  stepKey: keyof typeof PLANNING_OUTPUT_FILES,
+  stepKey: WorkflowStepId,
   content: string,
+  basePath?: string,
 ): Promise<StepResult> {
   ctx.state.artifacts[stepKey] = content;
-  return writeStepFile(ctx, stepKey, content);
+  return writeStepFile(ctx, stepKey, content, basePath);
 }
 
 export const planningSteps: StepDefinition[] = [
@@ -31,12 +42,14 @@ export const planningSteps: StepDefinition[] = [
     async execute(ctx) {
       const slug = slugify(ctx.state.requirementDescription);
       const template = buildPrd(ctx.state.requirementDescription, slug);
+      const batchDir = getPlanningBatchDir(ctx);
       const { content } = await enhancePlanningContent(
+        ctx.state.useLlm,
         "PRD / 需求发现",
         ctx.state.requirementDescription,
         template,
       );
-      return writePlanningStep(ctx, "discovery", content);
+      return writePlanningStep(ctx, "discovery", content, batchDir);
     },
   },
   {
@@ -45,16 +58,18 @@ export const planningSteps: StepDefinition[] = [
     async execute(ctx) {
       const prd =
         ctx.state.artifacts.discovery ??
-        (await readArtifactIfExists(ctx.state, PLANNING_OUTPUT_FILES.discovery)) ??
+        (await readArtifactIfExists(ctx.state, PLANNING_OUTPUT_FILES.discovery, getPlanningBatchDir(ctx))) ??
         ctx.state.requirementDescription;
       const template = buildUserStories(ctx.state.requirementDescription, prd);
+      const batchDir = getPlanningBatchDir(ctx);
       const { content } = await enhancePlanningContent(
+        ctx.state.useLlm,
         "用户故事生成",
         ctx.state.requirementDescription,
         template,
         prd.slice(0, 1500),
       );
-      return writePlanningStep(ctx, "user_stories", content);
+      return writePlanningStep(ctx, "user_stories", content, batchDir);
     },
   },
   {
@@ -62,13 +77,15 @@ export const planningSteps: StepDefinition[] = [
     label: PLANNING_STEP_LABELS.acceptance_criteria,
     async execute(ctx) {
       const template = buildAcceptanceCriteria();
+      const batchDir = getPlanningBatchDir(ctx);
       const { content } = await enhancePlanningContent(
+        ctx.state.useLlm,
         "验收标准定义",
         ctx.state.requirementDescription,
         template,
         ctx.state.artifacts.user_stories,
       );
-      return writePlanningStep(ctx, "acceptance_criteria", content);
+      return writePlanningStep(ctx, "acceptance_criteria", content, batchDir);
     },
   },
   {
@@ -76,12 +93,14 @@ export const planningSteps: StepDefinition[] = [
     label: PLANNING_STEP_LABELS.architecture,
     async execute(ctx) {
       const template = buildArchitecture(ctx.state.requirementDescription);
+      const batchDir = getPlanningBatchDir(ctx);
       const { content } = await enhancePlanningContent(
+        ctx.state.useLlm,
         "架构设计建议",
         ctx.state.requirementDescription,
         template,
       );
-      return writePlanningStep(ctx, "architecture", content);
+      return writePlanningStep(ctx, "architecture", content, batchDir);
     },
   },
   {
@@ -89,13 +108,15 @@ export const planningSteps: StepDefinition[] = [
     label: PLANNING_STEP_LABELS.task_breakdown,
     async execute(ctx) {
       const template = buildTasks();
+      const batchDir = getPlanningBatchDir(ctx);
       const { content } = await enhancePlanningContent(
+        ctx.state.useLlm,
         "任务拆解",
         ctx.state.requirementDescription,
         template,
         ctx.state.artifacts.user_stories,
       );
-      return writePlanningStep(ctx, "task_breakdown", content);
+      return writePlanningStep(ctx, "task_breakdown", content, batchDir);
     },
   },
   {
@@ -108,7 +129,7 @@ export const planningSteps: StepDefinition[] = [
       }
       const slug = slugify(ctx.state.requirementDescription);
       const content = buildCodeSkeleton(slug);
-      return writePlanningStep(ctx, "code_generation", content);
+      return writePlanningStep(ctx, "code_generation", content, getPlanningBatchDir(ctx));
     },
   },
   {
@@ -125,7 +146,7 @@ export const planningSteps: StepDefinition[] = [
         lintOutput,
       });
       const content = renderReviewMarkdown(review);
-      return writePlanningStep(ctx, "code_review", content);
+      return writePlanningStep(ctx, "code_review", content, getPlanningBatchDir(ctx));
     },
   },
   {
